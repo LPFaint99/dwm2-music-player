@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DWM2 Music Player</title>
+<style>
+  :root {
+    --bg: #10141c; --panel: #1a2130; --panel2: #222b3e; --text: #d8e0ee;
+    --dim: #8593ab; --accent: #6ec1ff; --accent2: #ffd166; --green: #7ee08a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  header {
+    padding: 14px 20px; background: var(--panel); border-bottom: 2px solid #000;
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; color: var(--accent); }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header .gh { margin-left: auto; color: var(--accent2); font-size: 12px; text-decoration: none; }
+  header .gh:hover { text-decoration: underline; }
+  #romname { color: var(--green); font-size: 12px; }
+
+  #drop {
+    margin: 40px auto; max-width: 560px; padding: 48px 24px; text-align: center;
+    border: 2px dashed #3a4a66; border-radius: 12px; color: var(--dim);
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  #drop.hover, #drop:hover { border-color: var(--accent); background: #141b29; }
+  #drop b { color: var(--text); }
+  #drop .err { color: #ff8989; }
+
+  main { display: none; gap: 16px; padding: 16px 20px; max-width: 1100px; margin: 0 auto; }
+  main.ready { display: grid; grid-template-columns: 340px 1fr; }
+  @media (max-width: 760px) { main.ready { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border-radius: 10px; padding: 14px; }
+  .panel h2 {
+    margin: 0 0 10px; font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--dim);
+  }
+
+  #tracks { display: flex; flex-direction: column; gap: 4px; max-height: 64vh; overflow-y: auto; }
+  .trk {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 0;
+    border-radius: 7px; background: var(--panel2); color: var(--text);
+    font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  }
+  .trk:hover { background: #2c3850; }
+  .trk.playing { background: #1f3a2a; outline: 1px solid var(--green); }
+  .trk .num { color: var(--accent2); width: 2.2em; }
+  .trk .name { flex: 1; }
+  .trk .tag { color: var(--dim); font-size: 11px; }
+  .trk.playing .tag::after { content: " ♪"; color: var(--green); }
+
+  #controls { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+  #controls button {
+    font: inherit; padding: 7px 16px; border: 0; border-radius: 7px;
+    background: var(--panel2); color: var(--text); cursor: pointer;
+  }
+  #controls button:hover { background: #2c3850; }
+  #nowplaying { color: var(--green); font-size: 13px; min-width: 200px; }
+  input[type=range] { accent-color: var(--accent); }
+
+  #sfxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .sfx {
+    font: inherit; font-size: 12px; padding: 8px 6px; border: 0; border-radius: 7px;
+    background: var(--panel2); color: var(--text); cursor: pointer;
+  }
+  .sfx:hover { background: #3a2f4f; }
+  .sfx:active { background: #54447a; }
+  .sfx .id { color: var(--accent2); }
+
+  #allsfx { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  #allsfx select {
+    font: inherit; font-size: 12px; background: var(--panel2); color: var(--text);
+    border: 0; border-radius: 6px; padding: 6px;
+  }
+  #mutebar { display: none; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+  .mute {
+    font: inherit; font-size: 12px; padding: 4px 10px; border: 0; border-radius: 5px;
+    background: var(--panel2); color: var(--accent2); cursor: pointer; transition: opacity .15s;
+  }
+  .mute:hover { background: #2c3850; }
+  #scope {
+    display: none; width: 100%; height: 60px; border-radius: 6px;
+    background: #0d1117; margin-top: 8px;
+  }
+  #exportrow { display: none; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  #exportrow label { font-size: 12px; color: var(--dim); }
+  #exportrow input[type=number] {
+    font: inherit; font-size: 12px; background: var(--panel2); color: var(--text);
+    border: 0; border-radius: 6px; padding: 4px 6px; width: 5.2em;
+  }
+  #expwav, #expmp3 {
+    font: inherit; font-size: 12px; padding: 5px 14px; border: 0; border-radius: 7px;
+    cursor: pointer;
+  }
+  #expwav { background: #1f2e50; color: var(--accent); }
+  #expwav:hover { background: #2a3d6a; }
+  #expmp3 { background: #2a2050; color: var(--accent2); }
+  #expmp3:hover { background: #3a2d6a; }
+  #expwav:disabled, #expmp3:disabled { opacity: 0.4; cursor: not-allowed; }
+  #expstatus { font-size: 11px; color: #ff8989; }
+  #expmidi {
+    font: inherit; font-size: 12px; padding: 5px 14px; border: 0; border-radius: 7px;
+    cursor: pointer; background: #1a3028; color: var(--green);
+  }
+  #expmidi:hover { background: #253d35; }
+  #pianoroll {
+    display: none; width: 100%; height: 90px; border-radius: 6px;
+    background: #0d1117; margin-top: 4px;
+  }
+  .sfx-exp {
+    font: inherit; font-size: 11px; padding: 4px 9px; border: 0;
+    border-radius: 6px; cursor: pointer;
+  }
+  .sfx-exp.wav { background: #1f2e50; color: var(--accent); }
+  .sfx-exp.wav:hover { background: #2a3d6a; }
+  .sfx-exp.mp3 { background: #2a2050; color: var(--accent2); }
+  .sfx-exp.mp3:hover { background: #3a2d6a; }
+  .sfx-exp:disabled { opacity: 0.4; cursor: not-allowed; }
+  @keyframes sfxflash { 0%,100%{background:var(--panel2)} 40%{background:#54447a} }
+  .sfx.flash { animation: sfxflash .28s ease-out; }
+  #wmbar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  #wmfill { height: 100%; background: var(--accent2); border-radius: 3px; width: 0%; transition: width .25s; }
+  footer { padding: 14px 20px; color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DWM2 Music Player</h1>
+  <span class="sub">Dragon Warrior Monsters 2 - sound engine decoded in your browser - v__VERSION__</span>
+  <span id="romname"></span>
+  <a class="gh" href="https://github.com/LPFaint99/dwm2-music-player" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<div id="drop">
+  <b>Drop your DWM2 ROM here</b> (cobi.gbc / tara.gbc)<br>
+  or click to choose a file<br><br>
+  <span class="sub">Nothing is uploaded - the file is decoded locally.</span>
+  <div class="err" id="droperr"></div>
+  <input type="file" id="file" accept=".gbc,.gb" hidden>
+</div>
+
+<main id="ui">
+  <div class="panel">
+    <h2>Track selector</h2>
+    <div id="tracks"></div>
+  </div>
+  <div>
+    <div class="panel" style="margin-bottom:16px">
+      <h2>Now playing</h2>
+      <div id="controls">
+        <button id="prevbtn">◀◀</button>
+        <button id="stopbtn">&#9654; Play</button>
+        <button id="nextbtn">▶▶</button>
+        <span>vol <input type="range" id="vol" min="0" max="100" value="30"></span>
+        <span id="nowplaying">-</span>
+      </div>
+      <div class="sub" id="trackinfo"></div>
+      <div id="mutebar"></div>
+      <canvas id="scope" width="800" height="60"></canvas>
+      <canvas id="pianoroll"></canvas>
+      <div id="exportrow">
+        <label>dur (s): <input type="number" id="expdur" value="120" min="5" max="600"></label>
+        <button id="expwav">&#8595; WAV</button>
+        <button id="expmp3">&#8595; MP3</button>
+        <button id="expmidi">&#8595; MIDI</button>
+        <span id="expstatus"></span>
+      </div>
+      <div id="progresswrap" style="display:none;margin-top:8px">
+        <div id="progressbar"
+             style="position:relative;height:12px;background:#222b3e;border-radius:6px;cursor:pointer;margin-bottom:5px;user-select:none;touch-action:none">
+          <div id="progressfill"
+               style="position:absolute;top:0;left:0;height:100%;background:#6ec1ff;border-radius:6px;pointer-events:none;width:0%"></div>
+          <div id="looptick"
+               style="position:absolute;top:-3px;bottom:-3px;width:2px;background:#ffd166;border-radius:1px;pointer-events:none;display:none"></div>
+          <div id="progressthumb"
+               style="position:absolute;top:50%;width:12px;height:12px;background:#fff;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;left:0%;box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px">
+          <span id="timecur" style="color:#6ec1ff">0:00</span>
+          <span id="timetot" style="color:#8593ab">0:00</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Sound effects <span style="text-transform:none;color:var(--dim)">(plays over the music, like in-game)</span></h2>
+      <div id="sfxgrid"></div>
+      <div id="allsfx">
+        <span class="sub">all notes:</span>
+        <select id="sfxsel"></select>
+        <button class="sfx" id="sfxplay">▶ play</button>
+        <button class="sfx-exp wav" id="sfxwav">&#8595; WAV</button>
+        <button class="sfx-exp mp3" id="sfxmp3">&#8595; MP3</button>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>WanderingMaster sequence <span style="text-transform:none;color:var(--dim)">(60 arena phases in order)</span></h2>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button id="wmbtn" class="sfx" style="padding:6px 14px">&#9654; Play all</button>
+        <label style="font-size:12px;color:var(--dim)">pace
+          <input type="range" id="wmpace" min="0.5" max="3" step="0.1" value="1" style="width:60px;vertical-align:middle">
+        </label>
+        <span id="wmstatus" style="color:var(--accent);font-size:12px">-</span>
+      </div>
+      <div id="wmbar"><div id="wmfill"></div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Sequences decoded and played back directly from the game's original sound engine.
+</footer>
+
+<script type="module" src="src/ui.js"></script>
+</body>
+</html>
