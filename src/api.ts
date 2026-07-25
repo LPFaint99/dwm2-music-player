@@ -63,7 +63,17 @@ export function musicSetVolume(v: number): void {
   if (_s.master) _s.master.gain.value = v;
 }
 
+/** Paused position, kept so a subsequent resume continues instead of restarting. */
+let _pausedAt: {
+  num: number;
+  ids: number[];
+  name: string;
+  pos: number;
+  btn: Element | null;
+} | null = null;
+
 export function musicStopMusic(): void {
+  _pausedAt = null;
   if (!_s.playing || !_s.audioCtx) return;
   _stopProgressLoop();
   if (_s.playing.timer !== null) clearInterval(_s.playing.timer);
@@ -76,11 +86,42 @@ export function musicStopMusic(): void {
   _fireStop();
 }
 
+/**
+ * Stop playback like `musicStopMusic`, but remember the current position so
+ * `musicResumeIfPaused` can continue from it instead of restarting at 0.
+ * Returns the paused position, or null if nothing was playing.
+ */
+export function musicPauseMusic(): { pos: number; total: number; loopSec: number | null } | null {
+  if (!_s.playing || !_s.audioCtx) return null;
+  const p = _calcPos();
+  const { trackNum, trackName, trackIds } = _s.playing;
+  const btn = _s.playingBtn;
+  _stopProgressLoop();
+  if (_s.playing.timer !== null) clearInterval(_s.playing.timer);
+  _fadeOutAndDisconnect(_s.playing.gain, STOP_FADE_TC, STOP_DISCONNECT_MS);
+  _s.playing = null;
+  // Leave _s.playingBtn's 'playing' highlight in place - it's paused, not stopped;
+  // musicStopMusic (called at the top of the next musicPlayTrack, whether that's a
+  // resume or a different track) will clear it correctly either way.
+  _pausedAt = p ? { num: trackNum, ids: trackIds, name: trackName, pos: p.pos, btn } : null;
+  return p;
+}
+
+/** Resume a track paused via `musicPauseMusic`. Returns false if nothing was paused. */
+export function musicResumeIfPaused(): boolean {
+  if (!_pausedAt) return false;
+  const { num, ids, name, pos, btn } = _pausedAt;
+  _pausedAt = null;
+  musicPlayTrack(num, ids, name, btn as HTMLElement | null, pos);
+  return true;
+}
+
 export function musicPlayTrack(
   num: number,
   ids: number[],
   name: string,
   btn?: HTMLElement | null,
+  startPos = 0,
 ): void {
   _audioInit();
   const wasSuspended = _s.audioCtx!.state !== 'running';
@@ -140,9 +181,11 @@ export function musicPlayTrack(
     const onStateChange = () => {
       if (_s.audioCtx!.state !== 'running') return;
       _s.audioCtx!.removeEventListener('statechange', onStateChange);
-      if (_s.playing && _s.playing.trackNum === num) musicPlayTrack(num, ids, name, btn);
+      if (_s.playing && _s.playing.trackNum === num) musicPlayTrack(num, ids, name, btn, startPos);
     };
     _s.audioCtx!.addEventListener('statechange', onStateChange);
+  } else if (startPos > 0) {
+    musicSeekTo(startPos);
   }
 }
 
@@ -173,21 +216,25 @@ export function musicSeekTo(targetSec: number): void {
   if (!_s.playing || !_s.R || !_s.audioCtx) return;
   _stopProgressLoop();
   if (_s.playing.timer !== null) clearInterval(_s.playing.timer);
+  // Notes up to HORIZON seconds ahead of "now" may already be scheduled (concrete
+  // start()/stop() calls on live audio nodes, which can't be un-scheduled). Reusing
+  // the old chanGains bus for the post-seek notes would mix those leftovers in with
+  // the new position - a new "layer" playing under every scrub. Instead leave the
+  // old gain/chanGains exactly as they are so they fade out and disconnect together
+  // (silencing whatever's still in flight), and build a fresh bus for the new position.
   const oldGain = _s.playing.gain;
+  const oldChanGains = _s.playing.chanGains;
   _fadeOutAndDisconnect(oldGain, SEEK_FADE_TC, SEEK_DISCONNECT_MS);
   const t0 = _s.audioCtx.currentTime + SEEK_LEAD_SEC;
   const newGain = _s.audioCtx.createGain();
   newGain.connect(_s.master!);
-  if (_s.playing.chanGains) {
-    Object.values(_s.playing.chanGains).forEach((cg) => {
-      try {
-        cg.disconnect(_s.playing!.gain);
-      } catch {
-        /* already disconnected */
-      }
-      cg.connect(newGain);
-    });
-  }
+  const newChanGains: Record<number, GainNode> = {};
+  [0, 1, 2, 3].forEach((t) => {
+    const cg = _s.audioCtx!.createGain();
+    cg.gain.value = oldChanGains?.[t]?.gain.value ?? 1; // preserve per-channel mute state
+    cg.connect(newGain);
+    newChanGains[t] = cg;
+  });
   for (const ch of _s.playing.channels) {
     const { loopSec, totalSec, loops, notes } = ch;
     let seekPos: number;
@@ -201,8 +248,10 @@ export function musicSeekTo(targetSec: number): void {
     const fi = firstNoteAtOrAfter(notes, seekPos);
     ch.idx = fi < 0 ? notes.length : fi;
     ch.done = !notes.length;
+    ch.bus = newChanGains[ch.chanType];
   }
   _s.playing.gain = newGain;
+  _s.playing.chanGains = newChanGains;
   _s.playing.startCtxTime = t0 - targetSec;
   _s.playing.lastEndTime = t0;
   _startTickLoop(_s.playing.channels, newGain);

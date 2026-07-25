@@ -2,6 +2,8 @@ import {
   musicParseRom,
   musicPlayTrack,
   musicStopMusic,
+  musicPauseMusic,
+  musicResumeIfPaused,
   musicPlaySfx,
   musicSetVolume,
   musicCurrentPos,
@@ -310,8 +312,15 @@ function currentTrkIndex(): number {
 
 /** Transport actions shared by the on-screen buttons and the keyboard shortcuts. */
 function togglePlayStop(): void {
-  if (musicGetCurrentTrack()) musicStopMusic();
-  else playByIndex(Math.max(0, currentTrkIndex())); // nothing playing → start at track 0
+  if (musicGetCurrentTrack()) {
+    // Pause (not stop): keeps the track/progress/mute UI in place and remembers
+    // position, so the next press continues instead of restarting from 0.
+    const p = musicPauseMusic();
+    $('stopbtn').textContent = '▶ Play';
+    if (p) setProgress(p.pos, p.total, p.loopSec);
+  } else if (!musicResumeIfPaused()) {
+    playByIndex(Math.max(0, currentTrkIndex())); // nothing playing/paused → start at track 0
+  }
 }
 function playPrev(): void {
   playByIndex(currentTrkIndex() - 1);
